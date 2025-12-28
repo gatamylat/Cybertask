@@ -2978,6 +2978,7 @@ class NexusTerminal {
         this.selectedUnplanned = false;
         this.selectedProjectIcon = '📁';
         this.selectedProjectId = null;
+        this.editingTagId = null;
         this.reviewChecks = {};
         
         // Boss mode
@@ -4274,7 +4275,30 @@ class NexusTerminal {
     }
     
     // ═══ TAGS ═══
+    async manageTags() {
+        const tagsListHTML = this.tags.length > 0 
+            ? this.tags.map(t => `
+                <div class="tag-manage-item" style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--fg-dark);margin-bottom:8px;">
+                    <span class="tag" style="border-color:${t.color};color:${t.color};">#${t.name}</span>
+                    <div style="flex:1;"></div>
+                    <button class="btn" style="font-size:8px;padding:4px 8px;border-color:${t.color};color:${t.color};" 
+                            onclick="App.editTag('${t.id}')">✎</button>
+                    <button class="btn" style="font-size:8px;padding:4px 8px;border-color:var(--accent);color:var(--accent);" 
+                            onclick="App.delTag('${t.id}')">✕</button>
+                </div>
+            `).join('')
+            : '<div style="text-align:center;padding:20px;color:var(--fg-dim);font-size:10px;">No tags yet</div>';
+        
+        this.showModal('MANAGE TAGS', `
+            <div style="margin-bottom:15px;">
+                ${tagsListHTML}
+            </div>
+            <button class="btn btn-block" style="border-color:var(--cyan);color:var(--cyan);" onclick="App.addTag()">+ NEW TAG</button>
+        `);
+    }
+    
     async addTag() {
+        this.editingTagId = null;
         this.showModal('NEW TAG', `
             <div class="form-group">
                 <label class="form-label">TAG NAME:</label>
@@ -4287,11 +4311,42 @@ class NexusTerminal {
                     <button class="select-btn active" style="color: #FF2E97;" data-color="#FF2E97" onclick="App.setTagColor('#FF2E97')">PINK</button>
                     <button class="select-btn" style="color: #FFAA00;" data-color="#FFAA00" onclick="App.setTagColor('#FFAA00')">AMBER</button>
                     <button class="select-btn" style="color: #00FF00;" data-color="#00FF00" onclick="App.setTagColor('#00FF00')">GREEN</button>
+                    <button class="select-btn" style="color: #9D4EDD;" data-color="#9D4EDD" onclick="App.setTagColor('#9D4EDD')">PURPLE</button>
+                    <button class="select-btn" style="color: #3A86FF;" data-color="#3A86FF" onclick="App.setTagColor('#3A86FF')">BLUE</button>
                 </div>
             </div>
             <button class="btn-submit" onclick="App.saveTag()">[ENTER] CREATE</button>
+            <button class="btn btn-block" style="margin-top:10px;" onclick="App.manageTags()">← BACK</button>
         `);
         this.selectedTagColor = '#FF2E97';
+    }
+    
+    async editTag(id) {
+        const tag = this.tags.find(t => t.id === id);
+        if (!tag) return;
+        
+        this.editingTagId = id;
+        this.selectedTagColor = tag.color;
+        
+        this.showModal('EDIT TAG', `
+            <div class="form-group">
+                <label class="form-label">TAG NAME:</label>
+                <input type="text" class="input" id="tagInput" value="${this.esc(tag.name)}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">COLOR:</label>
+                <div class="select-row">
+                    <button class="select-btn ${tag.color==='#00E5C4'?'active':''}" style="color: #00E5C4;" data-color="#00E5C4" onclick="App.setTagColor('#00E5C4')">CYAN</button>
+                    <button class="select-btn ${tag.color==='#FF2E97'?'active':''}" style="color: #FF2E97;" data-color="#FF2E97" onclick="App.setTagColor('#FF2E97')">PINK</button>
+                    <button class="select-btn ${tag.color==='#FFAA00'?'active':''}" style="color: #FFAA00;" data-color="#FFAA00" onclick="App.setTagColor('#FFAA00')">AMBER</button>
+                    <button class="select-btn ${tag.color==='#00FF00'?'active':''}" style="color: #00FF00;" data-color="#00FF00" onclick="App.setTagColor('#00FF00')">GREEN</button>
+                    <button class="select-btn ${tag.color==='#9D4EDD'?'active':''}" style="color: #9D4EDD;" data-color="#9D4EDD" onclick="App.setTagColor('#9D4EDD')">PURPLE</button>
+                    <button class="select-btn ${tag.color==='#3A86FF'?'active':''}" style="color: #3A86FF;" data-color="#3A86FF" onclick="App.setTagColor('#3A86FF')">BLUE</button>
+                </div>
+            </div>
+            <button class="btn-submit" onclick="App.saveTag()">[SAVE]</button>
+            <button class="btn btn-block" style="margin-top:10px;" onclick="App.manageTags()">← BACK</button>
+        `);
     }
     
     setTagColor(c) {
@@ -4303,24 +4358,41 @@ class NexusTerminal {
         const name = document.getElementById('tagInput').value.trim().toUpperCase();
         if (!name) { this.toast('ENTER TAG NAME', 'error'); return; }
         
-        const tag = {
-            id: 'tag_' + Date.now(),
-            name: name,
-            color: this.selectedTagColor
-        };
+        if (this.editingTagId) {
+            // Update existing tag
+            const tag = this.tags.find(t => t.id === this.editingTagId);
+            if (tag) {
+                tag.name = name;
+                tag.color = this.selectedTagColor;
+                await this.dbPut('tags', tag);
+                this.tags = await this.dbAll('tags');
+                this.toast('TAG UPDATED: #' + name);
+            }
+            this.editingTagId = null;
+        } else {
+            // Create new tag
+            const tag = {
+                id: 'tag_' + Date.now(),
+                name: name,
+                color: this.selectedTagColor
+            };
+            
+            await this.dbPut('tags', tag);
+            this.tags = await this.dbAll('tags');
+            this.toast('TAG CREATED: #' + name);
+        }
         
-        await this.dbPut('tags', tag);
-        this.tags = await this.dbAll('tags');
-        this.closeModal();
-        this.toast('TAG CREATED: #' + name);
-        this.render();
+        this.manageTags(); // Return to tags list
     }
     
     async delTag(id) {
+        const tag = this.tags.find(t => t.id === id);
+        const tagName = tag ? tag.name : '';
+        
         await this.dbDel('tags', id);
         this.tags = await this.dbAll('tags');
-        this.toast('TAG DELETED');
-        this.render();
+        this.toast('TAG DELETED: #' + tagName);
+        this.manageTags(); // Refresh the list
     }
     
     toggleTag(id) {
@@ -4874,7 +4946,7 @@ class NexusTerminal {
         }
         
         // Add tag button
-        h += `<button class="btn btn-block" onclick="App.addTag()" style="margin-top:10px;font-size:10px;">+ MANAGE TAGS</button>`;
+        h += `<button class="btn btn-block" onclick="App.manageTags()" style="margin-top:10px;font-size:10px;">⚙ MANAGE TAGS</button>`;
         
         return h;
     }
